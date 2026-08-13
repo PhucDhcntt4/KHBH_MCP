@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+prompts/*
+!prompts/.gitkeep
+# Ignore data
+data/
+
+# Ignore products
+products.json
