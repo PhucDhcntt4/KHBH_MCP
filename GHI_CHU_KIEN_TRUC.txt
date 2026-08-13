@@ -1,239 +1,42 @@
-GHI CHÚ NHANH BOT_KHBH
-Cập nhật: 04/08/2026
-
-============================================================
-1. MỤC ĐÍCH
-============================================================
-
-Bot hỗ trợ khách qua Telegram và HTTP API:
-- Trả lời bằng Gemini hoặc OpenAI.
-- Tra chính sách bảo hành/đổi trả.
-- Đọc phone và mã đơn từ ảnh.
-- Kiểm tra customer và mã đơn qua MCP.
-- Thu thập phone cho đơn sàn sau khi khách xác nhận.
-
-Bot hiện chưa kích hoạt bảo hành và chưa biết trạng thái bảo hành thật.
-
-============================================================
-2. SƠ ĐỒ
-============================================================
-
-Khách
-  -> Telegram / HTTP API
-  -> FastAPI + Telegram Router
-  -> AI / PolicyService / OrderService
-  -> MCP Server
-
-============================================================
-3. FILE CẦN NHỚ
-============================================================
-
-app/main.py
-- Khởi tạo FastAPI, AI và Telegram.
-- Có /health và /api/warranty/message.
-
-app/routes/telegram_router.py
-- Xử lý webhook, tin nhắn và ảnh Telegram.
-- Lưu mã đơn chờ phone trong RAM 10 phút.
-- Lưu phone chờ xác nhận trong RAM 10 phút.
-
-app/services/phone_validation_service.py
-- Chuẩn hóa +84 về 0.
-- Kiểm tra phone đúng 10 số.
-- Kiểm tra đầu số trong Dau_so_check.txt.
-
-app/services/MCP_Business_client.py
-- Kết nối và gọi MCP tool.
-
-app/services/order_service.py
-- get_customer: kiểm tra customer.
-- get_order: kiểm tra mã đơn.
-
-app/services/warranty_tools.py
-- search_order.
-- search_order_by_code.
-- search_warranty_policy.
-
-app/services/AI/providers/
-- gemini_provider.py.
-- openai_provider.py.
-
-prompts/warranty_agent.txt
-- Luật hội thoại của AI.
-
-prompts/warranty_policy.txt
-- Nội dung chính sách.
-
-mcp_test.py
-- Test kết nối MCP.
-
-
-============================================================
-4. QUY TẮC MCP QUAN TRỌNG
-============================================================
-
-get_customer(phone)
-- Chỉ kiểm tra phone có hồ sơ customer hay không.
-
-get_order(phone, order_number)
-- Schema bắt buộc có phone.
-- MCP hiện chưa dùng phone để ràng buộc đơn.
-- Kết quả chỉ chứng minh order_number tồn tại.
-- Không được nói phone khớp với đơn.
-
-Trong bot:
-
-    order_code = order_number
-
-Khi chỉ có mã đơn, bot dùng phone placeholder hợp lệ:
-
-    phone = "0900000000"
-
-Nếu khách gửi cả phone và mã đơn, bot dùng phone thật.
-
-============================================================
-5. KIỂM TRA PHONE
-============================================================
-
-Thứ tự:
-1. Xóa khoảng trắng, dấu chấm và dấu gạch.
-2. Đổi +84 về 0.
-3. Kiểm tra đúng 10 chữ số.
-4. Kiểm tra ba số đầu trong Dau_so_check.txt.
-5. Chỉ xử lý tiếp khi phone hợp lệ.
-
-Status lỗi:
-- phone_missing.
-- invalid_phone_length.
-- invalid_phone_prefix.
-
-Ví dụ:
-- +84 906 564 438 -> 0906564438.
-- 0193122 -> sai độ dài.
-- 0123456789 -> sai đầu số.
-
-============================================================
-6. CÁC LUỒNG CHÍNH
-============================================================
-
-A. Phone trước
-
-Phone -> kiểm tra định dạng/đầu số -> get_customer.
-
-- Có customer: xin mã đơn.
-- Không có: báo chưa có hồ sơ; có thể xin mã nếu là đơn sàn.
-- Phone sai: không gọi MCP.
-
-B. Mã đơn trước
-
-Mã đơn -> get_order với phone placeholder.
-
-- Không thấy: xin kiểm tra mã.
-- Tìm thấy: lưu order_code + channel rồi xin phone.
-- Nếu khách gửi mã mới khi đang chờ phone, ưu tiên mã mới.
-
-C. Mã đơn và phone cùng tin nhắn
-
-- Tách riêng order_code và phone.
-- Dùng phone thật để gọi get_order.
-- Không hỏi lại phone.
-
-D. Ảnh hóa đơn
-
-- AI đọc order_code, phone hoặc phone bị che.
-- Có mã nhưng thiếu/che phone: kiểm tra mã rồi xin phone đầy đủ.
-- Có đủ mã và phone: dùng phone thật để tra.
-
-============================================================
-7. LUỒNG ĐƠN SÀN
-============================================================
-
-Channel sàn được nhận diện qua:
-- SÀN.
-- TIKTOK.
-- SHOPEE.
-- LAZADA.
-
-Luồng:
-
-Mã đơn tồn tại
-  -> xin phone
-  -> kiểm tra 10 số + đầu số
-  -> KHÔNG gọi get_customer
-  -> hỏi khách XÁC NHẬN hoặc HỦY
-  -> chỉ ghi nhận sau khi khách XÁC NHẬN.
-
-Lý do: đơn sàn thường không có phone customer và mục tiêu là thu thập phone.
-
-Phone đã xác nhận hiện chỉ lưu trong RAM và log:
-- Mất khi restart bot.
-- Muốn lưu lâu dài cần database hoặc MCP tool ghi phone.
-
-============================================================
-8. LOG DEVELOPER
-============================================================
-
-Tìm thấy mã:
-
-    ORDER CODE FOUND order_code=... channel=... has_phone=...
-
-Chờ khách xác nhận phone sàn:
-
-    MARKETPLACE PHONE WAITING CONFIRMATION
-
-Khách xác nhận:
-
-    MARKETPLACE PHONE CONFIRMED
-
-Phone trong log phải được che, ví dụ 076****093.
-
-============================================================
-9. BIẾN MÔI TRƯỜNG
-============================================================
-
-Telegram:
-- TELEGRAM_BOT_TOKEN.
-- TELEGRAM_WEBHOOK_SECRET.
-
-AI:
-- AI_PROVIDER=gemini hoặc openai.
-- GEMINI_API_KEY / GEMINI_MODEL.
-- OPENAI_API_KEY / OPENAI_MODEL.
-
-MCP:
-- MCP_URL.
-- MCP_TIMEOUT.
-
-Không đưa token hoặc API key vào Git.
-
-============================================================
-10. CHẠY VÀ TEST
-============================================================
-
-Chạy bot:
-
-    uvicorn app.main:app --reload --log-level info
-
-Kiểm tra:
-
-    http://127.0.0.1:8000/health
-    http://127.0.0.1:8000/docs
-    python mcp_test.py
-    python -m compileall -q app
-
-Test hội thoại theo TEST_CASES_MCP_FLOW.txt.
-
-============================================================
-11. NHỚ 8 ĐIỀU
-============================================================
-
-1. get_customer kiểm tra customer.
-2. get_order chỉ kiểm tra mã đơn.
-3. MCP chưa ràng buộc phone với đơn.
-4. Không nói phone khớp với đơn.
-5. Phone phải đúng 10 số và đúng đầu số.
-6. Đơn sàn không gọi get_customer sau khi xin phone.
-7. Đơn sàn phải xác nhận phone trước khi ghi nhận.
-8. Pending và phone xác nhận đang lưu RAM, restart sẽ mất.
-
-HẾT
+BOT BẢO HÀNH MCP - KIẾN TRÚC NGẮN GỌN
+=========================================
+
+MỤC TIÊU
+- Bot Telegram chỉ xử lý yêu cầu kích hoạt bảo hành.
+- Không tư vấn chính sách bảo hành, đổi hàng hoặc đổi trả.
+- AI chỉ dùng để đọc mã đơn từ hình ảnh.
+
+LUỒNG HOẠT ĐỘNG
+1. Khách gửi: [số điện thoại] + yêu cầu "kích hoạt bảo hành".
+2. Bot kiểm tra 10 chữ số và đầu số trong Dau_so_check.txt.
+3. Bot nhớ số điện thoại tối đa 10 phút và chờ mã đơn/ảnh đơn.
+4. Nếu là ảnh, AI đọc mã đơn.
+5. OrderService gọi MCP get_order để xác minh đơn và lấy channel.
+6. ActivationService ghi yêu cầu vào data/activation_requests.json.
+7. ActivationService gọi MCP activate_order bằng phone + order_number.
+8. JSON được cập nhật: activated, already_activated hoặc failed.
+
+QUY ƯỚC KẾT QUẢ MCP
+- status=true + message="Không xử lý": đơn đã kích hoạt trước đó.
+- status=true và message khác: kích hoạt thành công.
+- status=false hoặc MCP lỗi: kích hoạt thất bại.
+
+FILE CHÍNH
+- app/main.py: khởi tạo FastAPI, AI và Telegram; cung cấp /health.
+- app/routes/telegram_router.py: nhận webhook và điều phối luồng kích hoạt.
+- app/services/phone_validation_service.py: kiểm tra số điện thoại.
+- app/services/order_service.py: xác minh đơn qua MCP get_order.
+- app/services/activation_service.py: ghi JSON và gọi MCP activate_order.
+- app/services/MCP_Business_client.py: kết nối MCP.
+- app/services/telegram_service.py: gửi/nhận dữ liệu Telegram.
+- app/services/image_extraction_service.py: chuẩn hóa kết quả OCR.
+- app/services/AI/providers/: Gemini/OpenAI chỉ dùng để OCR ảnh đơn.
+- prompts/image_order_extraction.txt: chỉ dẫn AI đọc ảnh.
+- data/activation_requests.json: nhật ký kích hoạt cục bộ.
+- mcp_test.py: test trực tiếp get_customer, get_order và activate_order.
+- test.py: liệt kê tên và schema các MCP tool.
+
+LƯU Ý
+- activate_order có thể thay đổi dữ liệu thật.
+- Log che số điện thoại nhưng có order_code và channel để debug.
+- Tin nhắn không có số điện thoại kèm yêu cầu kích hoạt sẽ bị bỏ qua.

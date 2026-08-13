@@ -2,12 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from dotenv import load_dotenv # type: ignore
-from fastapi import FastAPI, HTTPException # type: ignore
-
-from app.models import (
-    WarrantyMessageRequest,
-    WarrantyMessageResponse,
-)
+from fastapi import FastAPI  # type: ignore
 from app.services.AI.base import AIService
 from app.services.AI.factory import create_ai_service
 
@@ -82,42 +77,3 @@ def health():
         ),
         "telegram_ready": telegram_ready(),
     }
-
-
-@app.post(
-    "/api/warranty/message",
-    response_model=WarrantyMessageResponse,
-)
-def handle_warranty_message(
-    data: WarrantyMessageRequest,
-):
-    if ai_service is None:
-        raise HTTPException(
-            status_code=503,
-            detail="AI Agent chưa sẵn sàng",
-        )
-
-    try:
-        history = [
-            item.model_dump()
-            for item in data.history
-        ]
-
-        result = ai_service.chat(
-            message=data.message,
-            customer_id=data.customer_id,
-            history=history,
-        )
-
-        return WarrantyMessageResponse(
-            status="completed",
-            message=result["reply"],
-        )
-
-    except Exception as error:
-        logger.exception("Warranty Agent request failed: %s", error)
-
-        raise HTTPException(
-            status_code=500,
-            detail="Agent chưa thể xử lý yêu cầu lúc này",
-        ) from error

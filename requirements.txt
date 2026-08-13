@@ -5,6 +5,7 @@ pydantic==2.12.5
 
 # AI agent
 google-genai==2.8.0
+openai==2.41.1
 
 # Configuration and Telegram HTTP client
 python-dotenv==1.0.1
