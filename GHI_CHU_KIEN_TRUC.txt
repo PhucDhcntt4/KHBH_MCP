@@ -7,11 +7,16 @@ MỤC TIÊU
 - AI chỉ dùng để đọc mã đơn từ hình ảnh.
 
 LUỒNG HOẠT ĐỘNG
-1. Khách gửi tin nhắn có số điện thoại hợp lệ; không bắt buộc có cụm "kích hoạt bảo hành".
+1. Bot bắt đầu khi tin nhắn có SĐT hợp lệ HOẶC có cụm "kích hoạt bảo hành".
+   Nếu chỉ có cụm kích hoạt mà chưa có SĐT, bot sẽ xin SĐT trước.
 2. Bot kiểm tra 10 chữ số và đầu số trong Dau_so_check.txt.
 3. Bot nhớ số điện thoại tối đa 10 phút và chờ mã đơn/ảnh đơn.
 4. Nếu là ảnh, AI đọc mã đơn.
+   Nếu AI đọc chắc chắn SĐT mới trên ảnh, bot ưu tiên SĐT đó, kể cả dạng che như 086****188.
+   Chuỗi SĐT từ ảnh được giữ nguyên khi gửi activate_order; get_order dùng phone placeholder nếu SĐT bị che.
    Mã đơn bắt đầu bằng SO; lỗi gõ S0 (số 0) được tự động sửa thành SO.
+   Việc nhận diện không khóa cứng tiền tố SO: bot lấy các chuỗi chứa số làm ứng viên và để MCP get_order xác minh.
+   Nếu khách chỉ gửi phần số, bot thử cả mã gốc và biến thể thêm SO.
 5. OrderService gọi MCP get_order để xác minh đơn và lấy channel.
 6. OrderService gọi MCP get_customer để kiểm tra SĐT có trong hệ thống không.
 7. AI soạn câu hỏi xác nhận lại phone + order_code; bot lưu trạng thái chờ 10 phút.

@@ -156,7 +156,8 @@ class OrderService:
             {
                 "phone": (
                     normalize_phone(lookup_phone)
-                    or ORDER_LOOKUP_PLACEHOLDER_PHONE
+                    if is_valid_phone(lookup_phone)
+                    else ORDER_LOOKUP_PLACEHOLDER_PHONE
                 ),
                 "order_number": normalized_code,
             },

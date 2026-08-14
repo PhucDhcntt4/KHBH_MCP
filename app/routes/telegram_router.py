@@ -3,6 +3,8 @@ import os
 import re
 import threading
 import time
+import unicodedata
+import unicodedata
 from collections import deque
 from typing import Any
 
@@ -57,10 +59,38 @@ def _mask_phone(phone: str) -> str:
         return "***"
     return f"{phone[:3]}****{phone[-3:]}"
 
+def _has_activation_keyword(text: str) -> bool:
+    normalized = unicodedata.normalize("NFD", text.casefold())
+    normalized = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Mn"
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return "kich hoat" in normalized and "bao hanh" in normalized
 
-def _extract_order_code(text: str) -> str | None:
-    match = re.search(r"\bS[O0]\d{5,}\b", text, flags=re.IGNORECASE)
-    return normalize_order_code(match.group(0)) if match else None
+
+def _extract_order_candidates(text: str) -> list[str]:
+    tokens = re.findall(
+        r"\b[A-Za-z0-9][A-Za-z0-9-]{4,}\b",
+        text,
+    )
+    candidates: list[str] = []
+
+    for token in tokens:
+        value = token.strip().upper()
+        if not any(character.isdigit() for character in value):
+            continue
+
+        normalized = normalize_order_code(value)
+        if normalized:
+            candidates.append(normalized)
+
+        # Khách có thể chỉ gửi phần số, MCP lại lưu mã đủ SO.
+        if value.isdigit():
+            candidates.append("SO" + value)
+
+    return list(dict.fromkeys(candidates))
 
 
 def _save_pending_activation_request(chat_id: int, phone: str) -> None:
@@ -96,6 +126,7 @@ def _save_pending_confirmation(
     phone: str,
     order: dict[str, Any],
     customer_exists: bool,
+    phone_source: str,
 ) -> None:
     with _state_lock:
         _pending_confirmations[chat_id] = {
@@ -104,6 +135,7 @@ def _save_pending_confirmation(
             "external_order_id": order.get("external_order_id"),
             "channel": order.get("channel"),
             "customer_exists": customer_exists,
+            "phone_source": phone_source,
             "created_at": time.monotonic(),
         }
 
@@ -143,13 +175,21 @@ def _ai_activation_response(
         }
 
     if event == "order_verified":
-        return {
-            "intent": "unknown",
-            "reply": (
+        if context.get("phone_source") == "order_image":
+            reply = (
+                f"Dạ, anh/chị xác nhận dùng số điện thoại "
+                f"{context.get('phone')} có trên phiếu hàng để kích hoạt "
+                f"bảo hành cho đơn hàng {context.get('order_code')} đúng không ạ?"
+            )
+        else:
+            reply = (
                 f"Dạ, anh/chị xác nhận dùng số điện thoại "
                 f"{context.get('phone')} để kích hoạt bảo hành cho đơn "
                 f"hàng {context.get('order_code')} đúng không ạ?"
-            ),
+            )
+        return {
+            "intent": "unknown",
+            "reply": reply,
         }
 
     try:
@@ -161,6 +201,10 @@ def _ai_activation_response(
     except Exception:
         logger.exception("ACTIVATION AI RESPONSE ERROR event=%s", event)
         fallbacks = {
+            "activation_requested_without_phone": (
+                "Dạ, anh/chị vui lòng cung cấp số điện thoại "
+                "dùng để kích hoạt bảo hành giúp em ạ."
+            ),
             "phone_received": (
                 f"Dạ em đã ghi nhận số điện thoại {context.get('phone')}. "
                 "Anh/chị vui lòng gửi mã đơn hoặc ảnh đơn hàng giúp em với ạ."
@@ -172,6 +216,11 @@ def _ai_activation_response(
             "invalid_phone_prefix": (
                 "Dạ đầu số điện thoại chưa hợp lệ. "
                 "Anh/chị vui lòng kiểm tra và gửi lại giúp em ạ."
+            ),
+            "order_not_found": (
+                "Dạ em chưa tìm thấy mã đơn từ thông tin anh/chị "
+                "vừa gửi. Anh/chị vui lòng gửi lại mã đơn hoặc hình "
+                "ảnh phiếu mua hàng/phiếu giao hàng để em kiểm tra lại ạ."
             ),
             "order_verified": (
                 f"Dạ em đã xác minh mã đơn {context.get('order_code')} "
@@ -188,6 +237,10 @@ def _ai_activation_response(
                 "kích hoạt bảo hành trước đó rồi ạ."
             ),
             "activation_failed": "Dạ, hệ thống chưa thể kích hoạt bảo hành. Anh/chị vui lòng thử lại sau ạ.",
+            "activation_requested_without_phone": (
+                "Dạ, anh/chị vui lòng cung cấp số điện thoại "
+                "dùng để kích hoạt bảo hành giúp em ạ."
+            ),
         }
         return {"intent": "unknown", "reply": fallbacks.get(event, "Dạ anh/chị vui lòng thử lại ạ.")}
 
@@ -244,28 +297,41 @@ def extract_message(
 def _verify_order_for_confirmation(
     chat_id: int,
     phone: str,
-    order_code: str,
+    order_codes: list[str],
+    phone_source: str = "customer_message",
 ) -> str:
-    try:
-        order = order_service.get_by_order_code(
-            order_code,
-            lookup_phone=phone,
-        )
-    except Exception:
-        logger.exception(
-            "PRE ACTIVATION ORDER LOOKUP ERROR order_code=%s",
-            order_code,
-        )
+    order: dict[str, Any] | None = None
+    lookup_responded = False
+
+    for order_code in order_codes:
+        try:
+            candidate_order = order_service.get_by_order_code(
+                order_code,
+                lookup_phone=phone,
+            )
+            lookup_responded = True
+        except Exception:
+            logger.exception(
+                "PRE ACTIVATION ORDER CANDIDATE ERROR order_code=%s",
+                order_code,
+            )
+            continue
+
+        if candidate_order:
+            order = candidate_order
+            break
+
+    if not order and not lookup_responded:
         return (
             "Dạ hệ thống xác minh đơn hàng đang gián đoạn. "
             "Anh/chị vui lòng thử lại sau giúp em ạ."
         )
 
     if not order:
-        return (
-            f"Dạ em chưa tìm thấy mã đơn {order_code}. Anh/chị vui "
-            "lòng kiểm tra và gửi lại mã đơn hoặc ảnh đơn hàng ạ."
-        )
+        return _ai_activation_response(
+            "order_not_found",
+            {"order_candidates": order_codes},
+        )["reply"]
 
     try:
         customer_exists = order_service.customer_exists(phone)
@@ -280,12 +346,19 @@ def _verify_order_for_confirmation(
             "đoạn. Anh/chị vui lòng thử lại sau giúp em ạ."
         )
 
-    _save_pending_confirmation(chat_id, phone, order, customer_exists)
+    _save_pending_confirmation(
+        chat_id,
+        phone,
+        order,
+        customer_exists,
+        phone_source,
+    )
     _clear_pending_activation_request(chat_id)
     context = {
         "phone": phone,
         "order_code": order["order_code"],
         "channel": order.get("channel") or "không xác định",
+        "phone_source": phone_source,
     }
     logger.info(
         "ACTIVATION CONFIRMATION REQUIRED chat_id=%s order_code=%s "
@@ -410,6 +483,7 @@ def _handle_activation_message(chat_id: int, text: str) -> bool:
             "phone": confirmation["phone"],
             "order_code": confirmation["order_code"],
             "channel": confirmation.get("channel") or "không xác định",
+            "phone_source": confirmation.get("phone_source"),
         }
         decision = _ai_activation_response(
             "confirmation_received",
@@ -448,24 +522,66 @@ def _handle_activation_message(chat_id: int, text: str) -> bool:
         return True
 
     pending = _peek_pending_activation_request(chat_id)
-    order_code = _extract_order_code(text)
-
-    if pending and order_code:
-        phone = str(pending["phone"])
-        telegram_service.send_typing(chat_id)
-        reply = _verify_order_for_confirmation(
-            chat_id,
-            phone,
-            order_code,
-        )
-        telegram_service.send_message(chat_id, reply)
-        return True
-
+    order_candidates = _extract_order_candidates(text)
     validation = phone_validator.validate(text)
+
+    if pending:
+        if validation["valid"]:
+            phone = str(validation["phone"])
+            excluded = {phone, "SO" + phone}
+            order_candidates = [
+                candidate
+                for candidate in order_candidates
+                if candidate not in excluded
+            ]
+            _save_pending_activation_request(chat_id, phone)
+
+            if not order_candidates:
+                reply = _ai_activation_response(
+                    "phone_received",
+                    {"phone": phone},
+                    customer_message=text,
+                )["reply"]
+                telegram_service.send_message(chat_id, reply)
+                return True
+
+        if order_candidates:
+            phone = str(
+                validation["phone"]
+                if validation["valid"]
+                else pending["phone"]
+            )
+            telegram_service.send_typing(chat_id)
+            reply = _verify_order_for_confirmation(
+                chat_id,
+                phone,
+                order_candidates,
+            )
+            telegram_service.send_message(chat_id, reply)
+            return True
+
+        if _has_activation_keyword(text):
+            reply = _ai_activation_response(
+                "phone_received",
+                {"phone": str(pending["phone"])},
+                customer_message=text,
+            )["reply"]
+            telegram_service.send_message(chat_id, reply)
+            return True
+
     if not validation["valid"]:
         status = validation.get("status")
         if status == "phone_missing":
-            return False
+            if not _has_activation_keyword(text):
+                return False
+
+            reply = _ai_activation_response(
+                "activation_requested_without_phone",
+                {},
+                customer_message=text,
+            )["reply"]
+            telegram_service.send_message(chat_id, reply)
+            return True
         if status == "invalid_phone_length":
             event = "invalid_phone_length"
         else:
@@ -479,9 +595,19 @@ def _handle_activation_message(chat_id: int, text: str) -> bool:
         return True
 
     phone = str(validation["phone"])
-    if order_code:
+    excluded = {phone, "SO" + phone}
+    order_candidates = [
+        candidate
+        for candidate in order_candidates
+        if candidate not in excluded
+    ]
+    if order_candidates:
         telegram_service.send_typing(chat_id)
-        reply = _verify_order_for_confirmation(chat_id, phone, order_code)
+        reply = _verify_order_for_confirmation(
+            chat_id,
+            phone,
+            order_candidates,
+        )
         telegram_service.send_message(chat_id, reply)
         return True
 
@@ -586,11 +712,24 @@ def process_image(
                 "lòng gửi lại ảnh rõ hơn hoặc nhập trực tiếp mã đơn ạ."
             )
         else:
-            phone = str(pending["phone"])
+            extracted_phone = extracted.get("phone")
+            masked_phone = extracted.get("masked_phone")
+
+            if extracted.get("phone_confident") is True and extracted_phone:
+                phone = str(extracted_phone)
+            elif (
+                extracted.get("masked_phone_confident") is True
+                and masked_phone
+            ):
+                phone = str(masked_phone).replace("x", "*").replace("X", "*")
+            else:
+                phone = str(pending["phone"])
+
             reply = _verify_order_for_confirmation(
                 chat_id,
                 phone,
-                str(order_code),
+                [str(order_code)],
+                phone_source="order_image",
             )
 
         telegram_service.send_message(chat_id, reply)
