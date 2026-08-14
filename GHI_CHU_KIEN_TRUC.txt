@@ -7,14 +7,17 @@ MỤC TIÊU
 - AI chỉ dùng để đọc mã đơn từ hình ảnh.
 
 LUỒNG HOẠT ĐỘNG
-1. Khách gửi: [số điện thoại] + yêu cầu "kích hoạt bảo hành".
+1. Khách gửi tin nhắn có số điện thoại hợp lệ; không bắt buộc có cụm "kích hoạt bảo hành".
 2. Bot kiểm tra 10 chữ số và đầu số trong Dau_so_check.txt.
 3. Bot nhớ số điện thoại tối đa 10 phút và chờ mã đơn/ảnh đơn.
 4. Nếu là ảnh, AI đọc mã đơn.
+   Mã đơn bắt đầu bằng SO; lỗi gõ S0 (số 0) được tự động sửa thành SO.
 5. OrderService gọi MCP get_order để xác minh đơn và lấy channel.
-6. ActivationService ghi yêu cầu vào data/activation_requests.json.
-7. ActivationService gọi MCP activate_order bằng phone + order_number.
-8. JSON được cập nhật: activated, already_activated hoặc failed.
+6. OrderService gọi MCP get_customer để kiểm tra SĐT có trong hệ thống không.
+7. AI soạn câu hỏi xác nhận lại phone + order_code; bot lưu trạng thái chờ 10 phút.
+8. AI phân loại phản hồi thành confirm, cancel hoặc unknown.
+9. Chỉ khi intent=confirm, ActivationService mới ghi JSON và gọi MCP activate_order.
+10. JSON được cập nhật: activated, already_activated hoặc failed.
 
 QUY ƯỚC KẾT QUẢ MCP
 - status=true + message="Không xử lý": đơn đã kích hoạt trước đó.
@@ -32,11 +35,14 @@ FILE CHÍNH
 - app/services/image_extraction_service.py: chuẩn hóa kết quả OCR.
 - app/services/AI/providers/: Gemini/OpenAI chỉ dùng để OCR ảnh đơn.
 - prompts/image_order_extraction.txt: chỉ dẫn AI đọc ảnh.
+- prompts/activation_conversation.txt: hướng dẫn AI soạn câu trả lời và phân loại xác nhận.
 - data/activation_requests.json: nhật ký kích hoạt cục bộ.
 - mcp_test.py: test trực tiếp get_customer, get_order và activate_order.
 - test.py: liệt kê tên và schema các MCP tool.
 
 LƯU Ý
 - activate_order có thể thay đổi dữ liệu thật.
+- Mã đơn hợp lệ chưa làm kích hoạt; phải có xác nhận rõ ràng của khách.
 - Log che số điện thoại nhưng có order_code và channel để debug.
-- Tin nhắn không có số điện thoại kèm yêu cầu kích hoạt sẽ bị bỏ qua.
+- Tin nhắn không có SĐT sẽ bị bỏ qua, trừ khi bot đang chờ mã đơn.
+- Chuỗi giống SĐT nhưng sai độ dài hoặc sai đầu số sẽ được báo lỗi và xin lại.

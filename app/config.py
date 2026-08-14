@@ -11,6 +11,9 @@ PROMPT_DIR = PROJECT_ROOT / "prompts"
 IMAGE_ORDER_EXTRACTION_PROMPT_PATH = (
     PROMPT_DIR / "image_order_extraction.txt"
 )
+ACTIVATION_CONVERSATION_PROMPT_PATH = (
+    PROMPT_DIR / "activation_conversation.txt"
+)
 PHONE_PREFIX_PATH = PROJECT_ROOT / "Dau_so_check.txt"
 ACTIVATION_DATA_PATH = PROJECT_ROOT / "data" / "activation_requests.json"
 MCP_URL = os.getenv(

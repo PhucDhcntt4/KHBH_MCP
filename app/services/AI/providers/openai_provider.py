@@ -1,11 +1,15 @@
 import base64
+import json
 import os
 from typing import Any
 
 from openai import OpenAI  # type: ignore
 
-from app.config import IMAGE_ORDER_EXTRACTION_PROMPT_PATH
-from app.models import ImageOrderInfo
+from app.config import (
+    ACTIVATION_CONVERSATION_PROMPT_PATH,
+    IMAGE_ORDER_EXTRACTION_PROMPT_PATH,
+)
+from app.models import ActivationConversationResult, ImageOrderInfo
 from app.services.AI.base import AIService
 from app.services.image_extraction_service import ImageExtractionService
 
@@ -31,7 +35,34 @@ class OpenAIProvider(AIService):
         self.image_prompt = IMAGE_ORDER_EXTRACTION_PROMPT_PATH.read_text(
             encoding="utf-8"
         ).strip()
+        self.activation_prompt = ACTIVATION_CONVERSATION_PROMPT_PATH.read_text(
+            encoding="utf-8"
+        ).strip()
         self.image_extraction_service = ImageExtractionService()
+
+    def activation_conversation(
+        self,
+        event: str,
+        context: dict[str, Any],
+        customer_message: str | None = None,
+    ) -> dict[str, str]:
+        response = self.client.responses.parse(
+            model=self.model,
+            instructions=self.activation_prompt,
+            input=json.dumps(
+                {
+                    "event": event,
+                    "context": context,
+                    "customer_message": customer_message,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+            text_format=ActivationConversationResult,
+        )
+        if response.output_parsed is None:
+            raise RuntimeError("OpenAI không trả kết quả hội thoại")
+        return response.output_parsed.model_dump()
 
     def extract_order_from_image(
         self,

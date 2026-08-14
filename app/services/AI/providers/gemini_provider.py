@@ -6,7 +6,8 @@ from google import genai
 from google.genai import types  # type: ignore
 
 from app.config import IMAGE_ORDER_EXTRACTION_PROMPT_PATH
-from app.models import ImageOrderInfo
+from app.config import ACTIVATION_CONVERSATION_PROMPT_PATH
+from app.models import ActivationConversationResult, ImageOrderInfo
 from app.services.AI.base import AIService
 from app.services.image_extraction_service import ImageExtractionService
 
@@ -32,7 +33,36 @@ class GeminiProvider(AIService):
         self.image_prompt = IMAGE_ORDER_EXTRACTION_PROMPT_PATH.read_text(
             encoding="utf-8"
         ).strip()
+        self.activation_prompt = ACTIVATION_CONVERSATION_PROMPT_PATH.read_text(
+            encoding="utf-8"
+        ).strip()
         self.image_extraction_service = ImageExtractionService()
+
+    def activation_conversation(
+        self,
+        event: str,
+        context: dict[str, Any],
+        customer_message: str | None = None,
+    ) -> dict[str, str]:
+        payload = {
+            "event": event,
+            "context": context,
+            "customer_message": customer_message,
+        }
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=json.dumps(payload, ensure_ascii=False, default=str),
+            config=types.GenerateContentConfig(
+                system_instruction=self.activation_prompt,
+                response_mime_type="application/json",
+                response_schema=ActivationConversationResult,
+                temperature=0,
+            ),
+        )
+        if not response.text:
+            raise RuntimeError("Gemini không trả kết quả hội thoại")
+        result = ActivationConversationResult.model_validate_json(response.text)
+        return result.model_dump()
 
     def extract_order_from_image(
         self,

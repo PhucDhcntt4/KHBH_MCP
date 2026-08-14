@@ -35,7 +35,13 @@ def normalize_order_code(
     if not value:
         return None
 
-    return value.strip().upper()
+    order_code = re.sub(r"\s+", "", value).upper()
+
+    # Khách thường nhập nhầm chữ O thành số 0: S0... -> SO...
+    if re.fullmatch(r"S0\d+", order_code):
+        order_code = "SO" + order_code[2:]
+
+    return order_code
 
 
 class OrderService:

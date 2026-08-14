@@ -26,7 +26,16 @@ class PhoneValidationService:
         if not value:
             return None
 
-        phone = re.sub(r"\D", "", value)
+        # Chỉ lấy chuỗi có hình dạng SĐT bắt đầu bằng 0/+84.
+        # Nhờ vậy mã đơn như SO0004127 không bị nhận nhầm.
+        match = re.search(
+            r"(?<![A-Za-z0-9])(?:\+?84|0)(?:[\s.\-]*\d){6,10}(?!\d)",
+            value,
+        )
+        if not match:
+            return None
+
+        phone = re.sub(r"\D", "", match.group(0))
 
         if phone.startswith("84") and len(phone) == 11:
             phone = "0" + phone[2:]
