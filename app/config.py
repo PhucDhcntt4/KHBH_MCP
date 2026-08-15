@@ -15,7 +15,12 @@ ACTIVATION_CONVERSATION_PROMPT_PATH = (
     PROMPT_DIR / "activation_conversation.txt"
 )
 PHONE_PREFIX_PATH = PROJECT_ROOT / "Dau_so_check.txt"
-ACTIVATION_DATA_PATH = PROJECT_ROOT / "data" / "activation_requests.json"
+ACTIVATION_LOG_PATH = PROJECT_ROOT / "logs" / "activation.log"
+BOT_CHANNELS = {
+    channel.strip().lower()
+    for channel in os.getenv("BOT_CHANNELS", "telegram").split(",")
+    if channel.strip()
+}
 MCP_URL = os.getenv(
     "MCP_URL",
     "",

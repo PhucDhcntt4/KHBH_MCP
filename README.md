@@ -41,8 +41,8 @@ Bot_BaoHanh_MCP/
 |   |-- activation_conversation.txt
 |   `-- image_order_extraction.txt
 |
-|-- data/
-|   `-- activation_requests.json
+|-- logs/
+|   `-- activation.log
 |
 |-- .env
 |-- Dau_so_check.txt
@@ -147,7 +147,7 @@ app/services/order_service.py
 - Chuẩn hóa mã đơn và SĐT.
 
 app/services/activation_service.py
-- Ghi data/activation_requests.json.
+- Append nhật ký text vào logs/activation.log.
 - Gọi MCP activate_order.
 - Phân loại activated, already_activated, failed.
 
@@ -216,7 +216,8 @@ ZALO_WEBHOOK_SECRET=
 
 1. Sao lưu source và .env hiện tại trên server.
 2. Upload các file mới và file thay đổi đúng vị trí nêu trên.
-3. Không xóa hoặc ghi đè data/activation_requests.json.
+3. Sao lưu data/activation_requests.json cũ nếu cần giữ lịch sử; code mới không còn ghi file này.
+   Không ghi đè logs/activation.log khi deploy; service sẽ tự tạo và append.
 4. Thêm BOT_CHANNELS=telegram vào .env server.
 5. Cài dependency nếu requirements.txt trên server chưa đủ:
    pip install -r requirements.txt

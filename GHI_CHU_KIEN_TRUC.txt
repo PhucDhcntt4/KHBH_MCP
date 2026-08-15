@@ -1,6 +1,18 @@
 BOT BẢO HÀNH MCP - KIẾN TRÚC NGẮN GỌN
 =========================================
 
+CHANNEL
+- BOT_CHANNELS=telegram: chỉ bật Telegram (mặc định).
+- BOT_CHANNELS=zalo: chỉ nạp route Zalo placeholder; Zalo chưa xử lý nghiệp vụ.
+- BOT_CHANNELS=telegram,zalo: nạp cả hai route.
+- app/channels/base.py: giao diện MessageChannel và model IncomingChannelMessage.
+- ChannelLoggerAdapter tự gắn channel=telegram hoặc channel=zalo vào log router.
+- app/channels/telegram_channel.py: adapter Telegram đang chạy thật, bọc TelegramService.
+- app/channels/zalo_channel.py: adapter Zalo để sẵn, ready=false.
+- app/channels/factory.py: tạo channel theo BOT_CHANNELS.
+- app/routes/zalo_router.py: health + webhook placeholder, webhook trả 503.
+- app/services/zalo_service.py: giữ cấu hình Zalo, các API chưa triển khai.
+
 MỤC TIÊU
 - Bot Telegram chỉ xử lý yêu cầu kích hoạt bảo hành.
 - Không tư vấn chính sách bảo hành, đổi hàng hoặc đổi trả.
@@ -8,10 +20,18 @@ MỤC TIÊU
 
 LUỒNG HOẠT ĐỘNG
 1. Bot bắt đầu khi tin nhắn có SĐT hợp lệ HOẶC có cụm "kích hoạt bảo hành".
-   Nếu chỉ có cụm kích hoạt mà chưa có SĐT, bot sẽ xin SĐT trước.
+   Nếu chỉ có cụm kích hoạt, bot sẽ xin SĐT kèm mã đơn,
+   hoặc SĐT kèm hình ảnh phiếu mua hàng/phiếu giao hàng.
+   Bot tạo phiên chờ ngay cả khi chưa có SĐT, nên ảnh gửi ở tin nhắn
+   tiếp theo vẫn được xử lý. Nếu ảnh có SĐT thì dùng SĐT trên ảnh;
+   nếu không có thì bot nhớ mã đơn và xin SĐT sau.
 2. Bot kiểm tra 10 chữ số và đầu số trong Dau_so_check.txt.
 3. Bot nhớ số điện thoại tối đa 10 phút và chờ mã đơn/ảnh đơn.
 4. Nếu là ảnh, AI đọc mã đơn.
+   Ảnh có thể là tin nhắn đầu tiên, không cần phiên kích hoạt có sẵn.
+   AI đọc chắc chắn mã đơn thì bot tự tạo phiên kích hoạt.
+   Nếu không đọc được mã đơn hoặc độ tin cậy thấp, bot im lặng,
+   không tạo phiên và không gọi MCP; dev chỉ thấy log no_confident_order_code.
    Nếu AI đọc chắc chắn SĐT mới trên ảnh, bot ưu tiên SĐT đó, kể cả dạng che như 086****188.
    Chuỗi SĐT từ ảnh được giữ nguyên khi gửi activate_order; get_order dùng phone placeholder nếu SĐT bị che.
    Mã đơn bắt đầu bằng SO; lỗi gõ S0 (số 0) được tự động sửa thành SO.
@@ -21,8 +41,8 @@ LUỒNG HOẠT ĐỘNG
 6. OrderService gọi MCP get_customer để kiểm tra SĐT có trong hệ thống không.
 7. AI soạn câu hỏi xác nhận lại phone + order_code; bot lưu trạng thái chờ 10 phút.
 8. AI phân loại phản hồi thành confirm, cancel hoặc unknown.
-9. Chỉ khi intent=confirm, ActivationService mới ghi JSON và gọi MCP activate_order.
-10. JSON được cập nhật: activated, already_activated hoặc failed.
+9. Chỉ khi intent=confirm, ActivationService mới ghi activation.log và gọi MCP activate_order.
+10. Log append hai dòng processing + kết quả activated/already_activated/failed.
 
 QUY ƯỚC KẾT QUẢ MCP
 - status=true + message="Không xử lý": đơn đã kích hoạt trước đó.
@@ -34,14 +54,14 @@ FILE CHÍNH
 - app/routes/telegram_router.py: nhận webhook và điều phối luồng kích hoạt.
 - app/services/phone_validation_service.py: kiểm tra số điện thoại.
 - app/services/order_service.py: xác minh đơn qua MCP get_order.
-- app/services/activation_service.py: ghi JSON và gọi MCP activate_order.
+- app/services/activation_service.py: append logs/activation.log và gọi MCP activate_order.
 - app/services/MCP_Business_client.py: kết nối MCP.
 - app/services/telegram_service.py: gửi/nhận dữ liệu Telegram.
 - app/services/image_extraction_service.py: chuẩn hóa kết quả OCR.
 - app/services/AI/providers/: Gemini/OpenAI chỉ dùng để OCR ảnh đơn.
 - prompts/image_order_extraction.txt: chỉ dẫn AI đọc ảnh.
 - prompts/activation_conversation.txt: hướng dẫn AI soạn câu trả lời và phân loại xác nhận.
-- data/activation_requests.json: nhật ký kích hoạt cục bộ.
+- logs/activation.log: nhật ký kích hoạt dạng text, dùng giờ Việt Nam và hiện đầy đủ SĐT.
 - mcp_test.py: test trực tiếp get_customer, get_order và activate_order.
 - test.py: liệt kê tên và schema các MCP tool.
 

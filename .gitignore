@@ -7,6 +7,7 @@ prompts/*
 !prompts/.gitkeep
 # Ignore data
 data/
+logs/
 
 # Ignore products
 products.json

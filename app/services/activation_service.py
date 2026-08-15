@@ -1,30 +1,32 @@
-import json
 import threading
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
-from app.config import ACTIVATION_DATA_PATH
+from app.config import ACTIVATION_LOG_PATH
 from app.services.MCP_Business_client import MCPBusinessClient
 
 
 class ActivationService:
-    """Ghi log JSON và kích hoạt bảo hành qua MCP."""
+    """Kích hoạt qua MCP và append nhật ký dạng text."""
+
+    _VIETNAM_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
     def __init__(
         self,
         client: MCPBusinessClient | None = None,
-        data_path: Path | None = None,
+        log_path: Path | None = None,
     ) -> None:
         self.client = client or MCPBusinessClient()
-        self.data_path = data_path or ACTIVATION_DATA_PATH
+        self.log_path = log_path or ACTIVATION_LOG_PATH
         self._lock = threading.Lock()
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(ActivationService._VIETNAM_TIMEZONE).isoformat()
 
     @staticmethod
     def _normalize_message(value: Any) -> str:
@@ -35,36 +37,46 @@ class ActivationService:
             if unicodedata.category(character) != "Mn"
         ).strip()
 
-    def _read_records(self) -> list[dict[str, Any]]:
-        if not self.data_path.exists():
-            return []
+    @staticmethod
+    def _safe(value: Any) -> str:
+        return str(value if value is not None else "-").replace("\r", " ").replace(
+            "\n", " "
+        ).replace("|", "/")
 
-        try:
-            data = json.loads(self.data_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return []
-
-        return data if isinstance(data, list) else []
-
-    def _write_records(self, records: list[dict[str, Any]]) -> None:
-        self.data_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path = self.data_path.with_suffix(".tmp")
-        temporary_path.write_text(
-            json.dumps(records, ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
+    def _append_log(
+        self,
+        *,
+        request_id: str,
+        chat_id: int,
+        phone: str,
+        order_number: str,
+        sales_channel: str | None,
+        source_channel: str,
+        status: str,
+        mcp_status: Any = None,
+        mcp_message: Any = None,
+        error: Any = None,
+    ) -> None:
+        line = " | ".join(
+            [
+                f"time={self._now()}",
+                "event=activation",
+                f"status={self._safe(status)}",
+                f"request_id={self._safe(request_id)}",
+                f"chat_id={self._safe(chat_id)}",
+                f"source_channel={self._safe(source_channel)}",
+                f"order_number={self._safe(order_number)}",
+                f"sales_channel={self._safe(sales_channel)}",
+                f"phone={self._safe(phone)}",
+                f"mcp_status={self._safe(mcp_status)}",
+                f"mcp_message={self._safe(mcp_message)}",
+                f"error={self._safe(error)}",
+            ]
         )
-        temporary_path.replace(self.data_path)
-
-    def _save_record(self, record: dict[str, Any]) -> None:
         with self._lock:
-            records = self._read_records()
-            for index, current in enumerate(records):
-                if current.get("request_id") == record["request_id"]:
-                    records[index] = record
-                    break
-            else:
-                records.append(record)
-            self._write_records(records)
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(line + "\n")
 
     def activate(
         self,
@@ -73,9 +85,11 @@ class ActivationService:
         phone: str,
         order_number: str,
         channel: str | None = None,
+        source_channel: str = "telegram",
     ) -> dict[str, Any]:
+        request_id = uuid4().hex
         record: dict[str, Any] = {
-            "request_id": uuid4().hex,
+            "request_id": request_id,
             "chat_id": chat_id,
             "phone": phone,
             "order_number": order_number,
@@ -86,15 +100,20 @@ class ActivationService:
             "mcp_result": None,
             "error": None,
         }
-        self._save_record(record)
+        self._append_log(
+            request_id=request_id,
+            chat_id=chat_id,
+            phone=phone,
+            order_number=order_number,
+            sales_channel=channel,
+            source_channel=source_channel,
+            status="processing",
+        )
 
         try:
             result = self.client.call_tool(
                 "activate_order",
-                {
-                    "phone": phone,
-                    "order_number": order_number,
-                },
+                {"phone": phone, "order_number": order_number},
             )
             success = isinstance(result, dict) and result.get("status") is True
             message = self._normalize_message(
@@ -106,13 +125,33 @@ class ActivationService:
                 record["status"] = "activated"
             else:
                 record["status"] = "failed"
+
             record["mcp_result"] = result
             record["updated_at"] = self._now()
-            self._save_record(record)
+            self._append_log(
+                request_id=request_id,
+                chat_id=chat_id,
+                phone=phone,
+                order_number=order_number,
+                sales_channel=channel,
+                source_channel=source_channel,
+                status=str(record["status"]),
+                mcp_status=(result.get("status") if isinstance(result, dict) else None),
+                mcp_message=(result.get("message") if isinstance(result, dict) else None),
+            )
             return record
         except Exception as error:
             record["status"] = "failed"
             record["error"] = str(error)
             record["updated_at"] = self._now()
-            self._save_record(record)
+            self._append_log(
+                request_id=request_id,
+                chat_id=chat_id,
+                phone=phone,
+                order_number=order_number,
+                sales_channel=channel,
+                source_channel=source_channel,
+                status="failed",
+                error=error,
+            )
             raise
