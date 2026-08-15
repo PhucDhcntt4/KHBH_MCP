@@ -1,7 +1,8 @@
 # HƯỚNG DẪN CẤU TRÚC FILE VÀ CẬP NHẬT SERVER
 
-1. THƯ MỤC GỐC
+## 1. THƯ MỤC GỐC
 
+```text
 Bot_BaoHanh_MCP/
 |
 |-- app/
@@ -49,10 +50,11 @@ Bot_BaoHanh_MCP/
 |-- mcp_test.py
 |-- test.py
 |-- GHI_CHU_KIEN_TRUC.txt
-`-- HUONG_DAN_CAU_TRUC_VA_DEPLOY.txt
+`-- README.md
+```
 
 
-2. CÁC FILE CHANNEL DÙNG CHUNG
+## 2. CÁC FILE CHANNEL DÙNG CHUNG
 
 app/channels/base.py
 - Khai báo MessageChannel: giao diện chung cho Telegram và Zalo.
@@ -67,7 +69,7 @@ app/channels/__init__.py
 - Export các class channel để module khác import.
 
 
-3. CÁC FILE TELEGRAM
+## 3. CÁC FILE TELEGRAM
 
 app/channels/telegram_channel.py
 - Adapter Telegram theo giao diện MessageChannel.
@@ -91,7 +93,7 @@ telegram_router.py
   -> Telegram Bot API
 
 
-4. CÁC FILE ZALO
+## 4. CÁC FILE ZALO
 
 app/channels/zalo_channel.py
 - Adapter Zalo theo giao diện MessageChannel.
@@ -116,7 +118,7 @@ zalo_router.py
   -> Zalo OA API
 
 
-5. FILE KHỞI ĐỘNG VÀ CẤU HÌNH
+## 5. FILE KHỞI ĐỘNG VÀ CẤU HÌNH
 
 app/main.py
 - Khởi tạo AI.
@@ -138,7 +140,7 @@ Không dùng AI_PROVIDER=zalo.
 AI_PROVIDER chỉ dùng cho gemini/openai.
 
 
-6. FILE NGHIỆP VỤ DÙNG CHUNG
+## 6. FILE NGHIỆP VỤ DÙNG CHUNG
 
 app/services/order_service.py
 - Gọi MCP get_order và get_customer.
@@ -169,7 +171,7 @@ prompts/image_order_extraction.txt
 - Rule OCR mã đơn và SĐT trên phiếu.
 
 
-7. CÁC FILE PHẢI CẬP NHẬT LÊN SERVER ĐÃ DEPLOY
+## 7. CÁC FILE PHẢI CẬP NHẬT LÊN SERVER ĐÃ DEPLOY
 
 File mới cần thêm:
 - app/channels/__init__.py
@@ -190,7 +192,7 @@ Không ghi đè .env trên server bằng file .env từ máy local.
 Chỉ thêm hoặc sửa biến BOT_CHANNELS trên .env của server.
 
 
-8. BIẾN MÔI TRƯỜNG TRÊN SERVER
+## 8. BIẾN MÔI TRƯỜNG TRÊN SERVER
 
 Telegram hiện tại:
 BOT_CHANNELS=telegram
@@ -210,7 +212,7 @@ ZALO_OA_ID=
 ZALO_WEBHOOK_SECRET=
 
 
-9. CÁC BƯỚC CẬP NHẬT SERVER
+## 9. CÁC BƯỚC CẬP NHẬT SERVER
 
 1. Sao lưu source và .env hiện tại trên server.
 2. Upload các file mới và file thay đổi đúng vị trí nêu trên.
@@ -225,7 +227,7 @@ ZALO_WEBHOOK_SECRET=
 9. Test Telegram bằng tin nhắn không làm thay đổi đơn thật trước.
 
 
-10. KẾT QUẢ HEALTH MONG ĐỢI
+## 10. KẾT QUẢ HEALTH MONG ĐỢI
 
 Với BOT_CHANNELS=telegram:
 {
@@ -241,7 +243,7 @@ Với BOT_CHANNELS=telegram,zalo:
 - POST /api/zalo/webhook trả 503 cho đến khi tích hợp API thật.
 
 
-11. LƯU Ý QUAN TRỌNG
+## 11. LƯU Ý QUAN TRỌNG
 
 - Telegram đang hoạt động thật.
 - Zalo hiện chỉ là bộ khung, không nhận/gửi tin thật.
