@@ -47,7 +47,7 @@ class ActivationService:
         self,
         *,
         request_id: str,
-        chat_id: int,
+        chat_id: str | int,
         phone: str,
         order_number: str,
         sales_channel: str | None,
@@ -81,7 +81,7 @@ class ActivationService:
     def activate(
         self,
         *,
-        chat_id: int,
+        chat_id: str | int,
         phone: str,
         order_number: str,
         channel: str | None = None,

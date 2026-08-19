@@ -6,7 +6,7 @@ from fastapi import FastAPI  # type: ignore
 from app.channels.factory import create_channels
 from app.channels.telegram_channel import TelegramChannel
 from app.channels.zalo_channel import ZaloChannel
-from app.config import BOT_CHANNELS
+from app.config import BOT_CHANNELS, PHONE_PREFIX_PATH
 from app.routes.telegram_router import (
     configure_telegram,
     router as telegram_router,
@@ -20,7 +20,12 @@ from app.routes.zalo_router import (
 from app.services.AI.base import AIService
 from app.services.AI.factory import create_ai_service
 
+from app.services.activation_flow_service import ActivationFlowService
+from app.services.activation_service import ActivationService
+from app.services.order_service import OrderService
+from app.services.phone_validation_service import PhoneValidationService
 
+activation_flow: ActivationFlowService | None = None
 logger = logging.getLogger(__name__)
 ai_service: AIService | None = None
 channels = {}
@@ -28,7 +33,7 @@ channels = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global ai_service, channels
+    global ai_service, channels, activation_flow
 
     try:
         ai_service = create_ai_service()
@@ -38,18 +43,25 @@ async def lifespan(app: FastAPI):
             ai_service.model,
         )
         channels = create_channels(BOT_CHANNELS)
+        activation_flow = ActivationFlowService(
+            ai_service=ai_service,
+            order_service=OrderService(),
+            activation_service=ActivationService(),
+            phone_validator=PhoneValidationService(PHONE_PREFIX_PATH),
+        )
 
         telegram = channels.get("telegram")
         if isinstance(telegram, TelegramChannel):
-            configure_telegram(ai_service, telegram)
+            configure_telegram(telegram, activation_flow)
             logger.info("Telegram channel is ready")
 
         zalo = channels.get("zalo")
         if isinstance(zalo, ZaloChannel):
-            configure_zalo(zalo)
-            logger.warning("Zalo channel is enabled but not implemented")
+            configure_zalo(zalo, activation_flow)
+            logger.info("Zalo channel is ready")
     except Exception as error:
         ai_service = None
+        activation_flow = None
         channels = {}
         logger.exception("Application initialization failed: %s", error)
 
