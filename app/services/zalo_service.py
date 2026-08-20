@@ -92,6 +92,12 @@ class ZaloService:
                 stream=True,
             )
             response.raise_for_status()
+            logger.info(
+                "ZALO IMAGE HTTP status=%s final_url=%s headers=%s",
+                response.status_code,
+                response.url,
+                dict(response.headers),
+            )
         except requests.RequestException as error:
             raise RuntimeError(f"Không thể tải ảnh Zalo: {error}") from error
 
