@@ -25,7 +25,7 @@ async def main():
         customer_result = await client.call_tool(
             "get_customer",
             {
-                "phone": "0764776093"
+                "phone": "0867091188",
             }
         )
 
@@ -40,8 +40,8 @@ async def main():
         order_result = await client.call_tool(
             "get_order",
             {
-                "phone": "0764776093",
-                "order_number": "SO0004127"
+                "phone": "0867091188",
+                "order_number": "SO0003159",
             }
         )
 
@@ -59,8 +59,8 @@ async def main():
         activation_result = await client.call_tool(
             "activate_order",
             {
-                "phone": "0764776093",
-                "order_number": "SO0004127",
+                "phone": "0867091188",
+                "order_number": "SO0003159",
             },
         )
 

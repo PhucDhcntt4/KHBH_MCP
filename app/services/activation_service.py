@@ -31,11 +31,12 @@ class ActivationService:
     @staticmethod
     def _normalize_message(value: Any) -> str:
         normalized = unicodedata.normalize("NFD", str(value or "").casefold())
-        return "".join(
+        text = "".join(
             character
             for character in normalized
             if unicodedata.category(character) != "Mn"
         ).strip()
+        return text.replace("đ", "d")
 
     @staticmethod
     def _safe(value: Any) -> str:
@@ -119,7 +120,13 @@ class ActivationService:
             message = self._normalize_message(
                 result.get("message") if isinstance(result, dict) else None
             )
-            if success and message == "khong xu ly":
+            already_activated = (
+                message == "khong xu ly"
+                or "xu ly truoc do" in message
+                or "kich hoat truoc do" in message
+            )
+
+            if already_activated:
                 record["status"] = "already_activated"
             elif success:
                 record["status"] = "activated"

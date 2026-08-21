@@ -54,12 +54,6 @@ class ActivationFlowService:
         return channel.channel_name, str(conversation_id)
 
     @staticmethod
-    def _mask_phone(phone: str) -> str:
-        if len(phone) < 7:
-            return "***"
-        return f"{phone[:3]}****{phone[-3:]}"
-
-    @staticmethod
     def _has_activation_keyword(text: str) -> bool:
         normalized = unicodedata.normalize("NFD", text.casefold())
         normalized = "".join(
@@ -71,27 +65,34 @@ class ActivationFlowService:
         return "kich hoat" in normalized and "bao hanh" in normalized
 
     @staticmethod
-    def _extract_order_candidates(text: str) -> list[str]:
-        tokens = re.findall(
-            r"\b[A-Za-z0-9][A-Za-z0-9-]{4,}\b",
+    def _extract_order_candidates(
+        text: str,
+    ) -> list[str]:
+        matches = re.findall(
+            r"(?<![A-Za-z0-9])"
+            r"S[O0]\s*\d+"
+            r"(?![A-Za-z0-9])",
             text,
+            flags=re.IGNORECASE,
         )
+
         candidates: list[str] = []
 
-        for token in tokens:
-            value = token.strip().upper()
-            if not any(character.isdigit() for character in value):
-                continue
+        for match in matches:
+            normalized = normalize_order_code(match)
 
-            normalized = normalize_order_code(value)
             if normalized:
                 candidates.append(normalized)
 
-            # Khách có thể chỉ gửi phần số, MCP lại lưu mã đủ SO.
-            if value.isdigit():
-                candidates.append("SO" + value)
-
         return list(dict.fromkeys(candidates))
+
+    @staticmethod
+    def _looks_like_order_attempt(text: str) -> bool:
+        value = re.sub(r"[\s.\-]", "", text).upper()
+        return bool(
+            re.fullmatch(r"[A-Z0-9]{5,}", value)
+            and any(character.isdigit() for character in value)
+        )
 
     def _save_pending_activation_request(
         self,
@@ -272,6 +273,17 @@ class ActivationFlowService:
                     "Dạ, hệ thống chưa thể kích hoạt bảo hành. "
                     "Anh/chị vui lòng thử lại sau ạ."
                 ),
+                "invalid_phone_characters": (
+                    "Dạ, số điện thoại anh/chị gửi đang có ký tự không hợp lệ. "
+                    "Anh/chị vui lòng gửi lại đầy đủ 10 chữ số để em xác minh "
+                    "và hỗ trợ kích hoạt bảo hành nhé ạ."
+                ),
+                "invalid_order_format": (
+                    "Dạ, mã đơn hàng chưa đúng định dạng. Mã đơn cần bắt đầu "
+                    "bằng SO và theo sau là các chữ số, ví dụ SO0004127. "
+                    "Anh/chị vui lòng gửi lại mã đơn hoặc hình ảnh phiếu mua "
+                    "hàng/phiếu giao hàng để em kiểm tra nhé ạ."
+                ),
             }
             return {
                 "intent": "unknown",
@@ -352,7 +364,7 @@ class ActivationFlowService:
                 channel.channel_name,
                 conversation_id,
                 order["order_code"],
-                self._mask_phone(phone),
+                phone,
             )
             return (
                 "Dạ hệ thống kiểm tra thông tin khách hàng đang gián "
@@ -382,7 +394,7 @@ class ActivationFlowService:
             conversation_id,
             order["order_code"],
             order.get("channel") or "unknown",
-            self._mask_phone(phone),
+            phone,
             customer_exists,
         )
         return self._ai_activation_response("order_verified", context)["reply"]
@@ -442,7 +454,7 @@ class ActivationFlowService:
                 conversation_id,
                 order["order_code"],
                 order.get("channel") or "unknown",
-                self._mask_phone(phone),
+                phone,
             )
             return self._ai_activation_response(
                 "activation_failed",
@@ -464,7 +476,7 @@ class ActivationFlowService:
                 conversation_id,
                 order["order_code"],
                 order.get("channel") or "unknown",
-                self._mask_phone(phone),
+                phone,
             )
             return self._ai_activation_response(
                 "already_activated",
@@ -479,7 +491,7 @@ class ActivationFlowService:
                 conversation_id,
                 order["order_code"],
                 order.get("channel") or "unknown",
-                self._mask_phone(phone),
+                phone,
             )
             return self._ai_activation_response(
                 "activation_failed",
@@ -500,7 +512,7 @@ class ActivationFlowService:
             conversation_id,
             order["order_code"],
             order.get("channel") or "unknown",
-            self._mask_phone(phone),
+            phone,
         )
         return self._ai_activation_response(
             "activation_succeeded",
@@ -559,7 +571,7 @@ class ActivationFlowService:
                 intent,
                 confirmation["order_code"],
                 confirmation.get("channel") or "unknown",
-                self._mask_phone(str(confirmation["phone"])),
+                str(confirmation["phone"]),
             )
             channel.send_message(conversation_id, reply)
             return True
@@ -570,6 +582,22 @@ class ActivationFlowService:
         )
         order_candidates = self._extract_order_candidates(text)
         validation = self.phone_validator.validate(text)
+
+        if (
+            pending
+            and pending.get("phone")
+            and not order_candidates
+            and not validation["valid"]
+            and validation.get("status") != "invalid_phone_characters"
+            and self._looks_like_order_attempt(text)
+        ):
+            reply = self._ai_activation_response(
+                "invalid_order_format",
+                {},
+                customer_message=text,
+            )["reply"]
+            channel.send_message(conversation_id, reply)
+            return True
 
         if pending:
             if validation["valid"]:
@@ -646,6 +674,22 @@ class ActivationFlowService:
 
         if not validation["valid"]:
             status = validation.get("status")
+
+            if status == "invalid_phone_characters":
+                reply = self._ai_activation_response(
+                    "invalid_phone_characters",
+                    {
+                        "phone": validation.get("phone"),
+                    },
+                    customer_message=text,
+                )["reply"]
+
+                channel.send_message(
+                    conversation_id,
+                    reply,
+                )
+                return True
+
             if status == "phone_missing":
                 if not self._has_activation_keyword(text):
                     return False
